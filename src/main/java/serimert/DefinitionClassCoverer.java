@@ -18,15 +18,11 @@ public class DefinitionClassCoverer {
         for (String className : classNamesWithPackagePath) {
             try {
                 Class<?> classToCover = Class.forName(className);
-                Object objectInstance;
-                if (classToCover.isEnum())
-                    objectInstance = coverEnum(classToCover);
-                else
-                    objectInstance = coverConstructors(classToCover);
-
-                if (coverOptions.isCoverGetterAndSetters())
-                    coverGetterAndSetters(objectInstance, classToCover, coverOptions);
-                coverOtherMethods(objectInstance, classToCover, coverOptions);
+                Object objectInstance = classToCover.isEnum() ? coverEnum(classToCover)
+                                                              : coverConstructors(classToCover);
+                coverGetterAndSetters(objectInstance, classToCover, coverOptions);
+                coverToStringEqualsHashcode(objectInstance, coverOptions);
+                coverInterfaceDefaultMethods(objectInstance, classToCover, coverOptions);
             } catch (Exception ex) {
                 System.out.println("Reflection error for class: "+ className + ": " + ex);
             }
@@ -37,8 +33,10 @@ public class DefinitionClassCoverer {
         Object sampleObject = null;
         for (Object object : EnumSet.allOf((Class) classToCover)) {
             Object enumObject = Enum.valueOf((Class) classToCover, object.toString());
-            if (sampleObject == null)
+            if (sampleObject == null) {
                 sampleObject = enumObject;
+                assert !object.equals(UUID.randomUUID().toString());
+            }
         }
         return sampleObject;
     }
@@ -50,6 +48,7 @@ public class DefinitionClassCoverer {
             Object[] constructorParamArr = getParameterArr(constructor.getParameterTypes());
             constructor.setAccessible(true);
             object = constructor.newInstance(constructorParamArr);
+            assert !object.equals(UUID.randomUUID().toString());
         }
         return object;
     }
@@ -57,12 +56,16 @@ public class DefinitionClassCoverer {
     private static void coverGetterAndSetters(Object objectInstance, Class<?> classToCover,
                                               CoverOptions coverOptions)
             throws InvocationTargetException, IllegalAccessException {
+        if (!coverOptions.isCoverGetterAndSetters())
+            return;
+
         for (Method method : classToCover.getDeclaredMethods()) {
             if (classToCover.isEnum() && method.getName().contains("valueOf"))
                 continue;
 
             method.setAccessible(true);
-            method.invoke(objectInstance, getParameterArr(method.getParameterTypes()));
+            Object res = method.invoke(objectInstance, getParameterArr(method.getParameterTypes()));
+            assert res == null || !res.equals(UUID.randomUUID().toString());
         }
 
         if (!coverOptions.isCoverSuperClasses())
@@ -75,20 +78,23 @@ public class DefinitionClassCoverer {
         }
     }
 
+    private static void coverToStringEqualsHashcode(Object objectInstance,CoverOptions coverOptions) {
+        if (!coverOptions.isCoverToStringEqualsHashcode())
+            return;
+
+        assert objectInstance.toString() != null;
+        assert objectInstance.hashCode() > Integer.MIN_VALUE;
+        assert !objectInstance.equals(UUID.randomUUID().toString());
+    }
+
     /**
-     * Cover to string, hashcode, equals, and interface default methods
+     * Cover interface default methods
      * @param objectInstance .
      * @param classToCover .
      */
-    private static void coverOtherMethods(Object objectInstance, Class<?> classToCover,
-                                          CoverOptions coverOptions)
+    private static void coverInterfaceDefaultMethods(Object objectInstance, Class<?> classToCover,
+                                                     CoverOptions coverOptions)
             throws InvocationTargetException, IllegalAccessException {
-        if (coverOptions.isCoverToStringEqualsHashcode()) {
-            assert objectInstance.toString() != null;
-            assert objectInstance.hashCode() > Integer.MIN_VALUE;
-            assert !objectInstance.equals(UUID.randomUUID().toString());
-        }
-
         if (!coverOptions.isCoverInterfaceDefaultMethods())
             return;
 

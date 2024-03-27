@@ -22,12 +22,12 @@ public class CoverOptions {
         return coverAll || coverSuperClasses;
     }
 
-    public boolean isCoverInterfaceDefaultMethods() {
-        return coverAll || coverInterfaceDefaultMethods;
-    }
-
     public boolean isCoverToStringEqualsHashcode() {
         return coverAll || coverToStringEqualsHashcode;
+    }
+
+    public boolean isCoverInterfaceDefaultMethods() {
+        return coverAll || coverInterfaceDefaultMethods;
     }
 
     public static class Builder {

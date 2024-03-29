@@ -2,4 +2,4 @@ This utility class helps to cover definition classes when you can't ignore in So
 
 
 
-!!!!!!!Break design patterns at your own risk. T
+!!!!!!!Break design patterns at your own risk.

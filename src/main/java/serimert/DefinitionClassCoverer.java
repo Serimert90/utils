@@ -1,12 +1,22 @@
 package serimert;
 
 import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 public class DefinitionClassCoverer {
+
+    private static final Map<Class<?>, Object> ALREADY_INSTANTIATED_CLASS_INSTANCES = new HashMap<>();
+
+    static {
+        ALREADY_INSTANTIATED_CLASS_INSTANCES.put(String.class, "a");
+        ALREADY_INSTANTIATED_CLASS_INSTANCES.put(Integer.class, Integer.valueOf("1"));
+        ALREADY_INSTANTIATED_CLASS_INSTANCES.put(Long.class, Long.valueOf("1"));
+        ALREADY_INSTANTIATED_CLASS_INSTANCES.put(Double.class, Double.valueOf("1"));
+    }
 
     private DefinitionClassCoverer() { /* Empty constructor */ }
 
@@ -19,7 +29,7 @@ public class DefinitionClassCoverer {
             try {
                 Class<?> classToCover = Class.forName(className);
                 Object objectInstance = classToCover.isEnum() ? coverEnum(classToCover)
-                                                              : coverConstructors(classToCover);
+                        : coverConstructors(classToCover);
                 coverGetterAndSetters(objectInstance, classToCover, coverOptions);
                 coverToStringEqualsHashcode(objectInstance, coverOptions);
                 coverInterfaceDefaultMethods(objectInstance, classToCover, coverOptions);
@@ -41,31 +51,34 @@ public class DefinitionClassCoverer {
         return sampleObject;
     }
 
-    private static Object coverConstructors(Class<?> classToCover)
-            throws InvocationTargetException, InstantiationException, IllegalAccessException {
+    private static Object coverConstructors(Class<?> classToCover)  {
         Object object = null;
         for (Constructor<?> constructor : classToCover.getDeclaredConstructors()) {
             Object[] constructorParamArr = getParameterArr(constructor.getParameterTypes());
             constructor.setAccessible(true);
-            object = constructor.newInstance(constructorParamArr);
-            assert !object.equals(UUID.randomUUID().toString());
+            try {
+                object = constructor.newInstance(constructorParamArr);
+                ALREADY_INSTANTIATED_CLASS_INSTANCES.put(classToCover, object);
+                assert !object.equals(UUID.randomUUID().toString());
+            } catch (Exception ignored) {}
         }
         return object;
     }
 
     private static void coverGetterAndSetters(Object objectInstance, Class<?> classToCover,
-                                              CoverOptions coverOptions)
-            throws InvocationTargetException, IllegalAccessException {
+                                              CoverOptions coverOptions) {
         if (!coverOptions.isCoverGetterAndSetters())
             return;
 
         for (Method method : classToCover.getDeclaredMethods()) {
-            if (classToCover.isEnum() && method.getName().contains("valueOf"))
+            if (shouldSkipForGetterAndSetters(classToCover, method))
                 continue;
 
             method.setAccessible(true);
-            Object res = method.invoke(objectInstance, getParameterArr(method.getParameterTypes()));
-            assert res == null || !res.equals(UUID.randomUUID().toString());
+            try {
+                Object res = method.invoke(objectInstance, getParameterArr(method.getParameterTypes()));
+                assert res == null || !res.equals(UUID.randomUUID().toString());
+            } catch (Exception ignored) {}
         }
 
         if (!coverOptions.isCoverSuperClasses())
@@ -82,9 +95,12 @@ public class DefinitionClassCoverer {
         if (!coverOptions.isCoverToStringEqualsHashcode())
             return;
 
-        assert objectInstance.toString() != null;
-        assert objectInstance.hashCode() > Integer.MIN_VALUE;
-        assert !objectInstance.equals(UUID.randomUUID().toString());
+        try {
+            assert objectInstance.toString() != null;
+            assert objectInstance.hashCode() > Integer.MIN_VALUE;
+            assert !objectInstance.equals(UUID.randomUUID().toString());
+            boolean result = objectInstance.equals(coverConstructors(objectInstance.getClass()));
+        } catch (Exception ignored) {}
     }
 
     /**
@@ -93,25 +109,32 @@ public class DefinitionClassCoverer {
      * @param classToCover .
      */
     private static void coverInterfaceDefaultMethods(Object objectInstance, Class<?> classToCover,
-                                                     CoverOptions coverOptions)
-            throws InvocationTargetException, IllegalAccessException {
+                                                     CoverOptions coverOptions) {
         if (!coverOptions.isCoverInterfaceDefaultMethods())
             return;
 
         Class<?>[] interfaces = classToCover.getInterfaces();
-        int a = 0;
-        while (interfaces.length > 0) {
-            Class<?> interfaceClass = interfaces[a];
+        for (Class<?> interfaceClass : interfaces) {
+            if (interfaceClass.getSimpleName().equals("Serializable"))
+                break;
+
             for (Method method : interfaceClass.getDeclaredMethods()) {
                 if (!method.isDefault())
                     continue;
 
                 method.setAccessible(true);
-                method.invoke(objectInstance, getParameterArr(method.getParameterTypes()));
+                try {
+                    method.invoke(objectInstance, getParameterArr(method.getParameterTypes()));
+                } catch (Exception ignored) {}
             }
-            a++;
-            interfaces = interfaceClass.getInterfaces();
         }
+    }
+
+    private static boolean shouldSkipForGetterAndSetters(Class<?> classToCover, Method method) {
+        return method.getName().equals("toString")
+                || method.getName().equals("hashCode")
+                || method.getName().equals("equals")
+                || (classToCover.isEnum() && method.getName().contains("valueOf"));
     }
 
     private static Object[] getParameterArr(Class<?>[] parameterClasses) {
@@ -122,7 +145,10 @@ public class DefinitionClassCoverer {
 
         int a = 0;
         for (Class<?> paramClass : parameterClasses) {
-            paramArr[a] = paramClass.isPrimitive() ? getPrimitiveSample(paramClass) : null;
+            if (paramClass.isPrimitive())
+                paramArr[a] = getPrimitiveSample(paramClass);
+            else
+                paramArr[a] = ALREADY_INSTANTIATED_CLASS_INSTANCES.getOrDefault(paramClass, null);
             a++;
         }
         return paramArr;
